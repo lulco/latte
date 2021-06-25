@@ -16,6 +16,8 @@ use Latte\Helpers;
 use Latte\MacroNode;
 use Latte\PhpHelpers;
 use Latte\PhpWriter;
+use ReflectionClass;
+use ReflectionException;
 
 
 /**
@@ -838,7 +840,7 @@ class CoreMacros extends MacroSet
 	/**
 	 * {varType type $var}
 	 */
-	public function macroVarType(MacroNode $node): void
+	public function macroVarType(MacroNode $node, PhpWriter $writer): string
 	{
 		if ($node->modifiers) {
 			$node->setArgs($node->args . $node->modifiers);
@@ -851,6 +853,10 @@ class CoreMacros extends MacroSet
 		if (!$type || !$variable) {
 			throw new CompileException('Unexpected content, expecting {varType type $var}.');
 		}
+
+		$varName = $variable[0];
+		$paramName = ltrim($varName, '$');
+		return $writer->write("/** @var $type */\n$varName = \$this->params['$paramName']");
 	}
 
 
@@ -869,12 +875,32 @@ class CoreMacros extends MacroSet
 	/**
 	 * {templateType ClassName}
 	 */
-	public function macroTemplateType(MacroNode $node): void
+	public function macroTemplateType(MacroNode $node, PhpWriter $writer): string
 	{
 		if (!$this->getCompiler()->isInHead()) {
 			throw new CompileException($node->getNotation() . ' is allowed only in template header.');
 		}
 		$node->validate('class name');
+
+		$templateTypes = [];
+		try {
+			$reflectionClass = new ReflectionClass($node->args);
+			foreach ($reflectionClass->getProperties() as $property) {
+				$propertyName = $property->getName();
+				$type = $property->getType();
+
+				$templateType = '';
+				if ($type) {
+					$templateType .= "/** @var {$type->getName()} */\n";
+				}
+				$templateType .= "\$$propertyName = \$this->params['$propertyName'];";
+				$templateTypes[] = $templateType;
+			}
+		} catch (ReflectionException $e) {
+
+		}
+
+		return $writer->write(implode("\n", $templateTypes));
 	}
 
 
